@@ -31,4 +31,8 @@ urlpatterns = [
     # Import
     path('groups/<int:group_id>/import/', views.import_csv, name='import-csv'),
     path('groups/<int:group_id>/import-reports/', views.import_reports, name='import-reports'),
+
+    # Anomaly Approval (Meera's requirement)
+    path('groups/<int:group_id>/import-reports/<int:report_id>/anomalies/<int:anomaly_id>/',
+         views.review_anomaly, name='review-anomaly'),
 ]

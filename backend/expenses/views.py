@@ -569,3 +569,46 @@ def import_reports(request, group_id):
     reports = group.import_reports.prefetch_related('anomalies').all()
     serializer = ImportReportSerializer(reports, many=True)
     return Response(serializer.data)
+
+
+@api_view(['PUT'])
+def review_anomaly(request, group_id, report_id, anomaly_id):
+    """
+    Approve or reject a specific import anomaly.
+
+    This endpoint satisfies Meera's requirement:
+    "Clean up the duplicates — but I want to approve anything the app deletes or changes."
+
+    Accepts:
+        status: 'user_approved' | 'user_rejected'
+        notes: optional user notes about the decision
+    """
+    try:
+        anomaly = ImportAnomaly.objects.get(
+            id=anomaly_id,
+            import_report_id=report_id,
+            import_report__group_id=group_id,
+        )
+    except ImportAnomaly.DoesNotExist:
+        return Response({'error': 'Anomaly not found'}, status=status.HTTP_404_NOT_FOUND)
+
+    new_status = request.data.get('status')
+    if new_status not in ('user_approved', 'user_rejected'):
+        return Response(
+            {'error': 'status must be "user_approved" or "user_rejected"'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    anomaly.status = new_status
+    if 'notes' in request.data:
+        anomaly.description += f' | User note: {request.data["notes"]}'
+    anomaly.save()
+
+    return Response({
+        'id': anomaly.id,
+        'row_number': anomaly.row_number,
+        'category': anomaly.category,
+        'status': anomaly.status,
+        'description': anomaly.description,
+    })
+
