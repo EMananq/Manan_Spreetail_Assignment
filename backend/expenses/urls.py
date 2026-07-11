@@ -10,6 +10,7 @@ urlpatterns = [
     path('auth/register/', views.register, name='register'),
     path('auth/login/', views.login, name='login'),
     path('auth/me/', views.me, name='me'),
+    path('auth/users/', views.users_list, name='users-list'),
 
     # Groups
     path('groups/', views.groups_list, name='groups-list'),
