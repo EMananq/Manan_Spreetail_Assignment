@@ -99,6 +99,14 @@ def me(request):
     return Response(UserSerializer(request.user).data)
 
 
+@api_view(['GET'])
+def users_list(request):
+    """List all users (for adding members to groups)."""
+    users = User.objects.all().order_by('name')
+    serializer = UserSerializer(users, many=True)
+    return Response(serializer.data)
+
+
 # ═══════════════════════════════════════════════════════════════════════
 # GROUP ENDPOINTS
 # ═══════════════════════════════════════════════════════════════════════
@@ -230,9 +238,19 @@ def group_expenses(request, group_id):
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
 
+        # Use paid_by_id from request if provided, else fall back to current user
+        paid_by_id = data.get('paid_by_id') or request.data.get('paid_by_id')
+        if paid_by_id:
+            try:
+                payer = User.objects.get(id=int(paid_by_id))
+            except User.DoesNotExist:
+                return Response({'error': 'Payer user not found'}, status=status.HTTP_404_NOT_FOUND)
+        else:
+            payer = request.user
+
         expense = Expense.objects.create(
             group=group,
-            paid_by=request.user,
+            paid_by=payer,
             description=data['description'],
             amount=data['amount'],
             currency=data.get('currency', 'INR'),
@@ -287,9 +305,19 @@ def group_settlements(request, group_id):
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
 
+        # Use from_user_id from request if provided, else fall back to current user
+        from_user_id = data.get('from_user_id') or request.data.get('from_user_id')
+        if from_user_id:
+            try:
+                from_user = User.objects.get(id=int(from_user_id))
+            except User.DoesNotExist:
+                return Response({'error': 'From user not found'}, status=status.HTTP_404_NOT_FOUND)
+        else:
+            from_user = request.user
+
         settlement = Settlement.objects.create(
             group=group,
-            from_user=request.user,
+            from_user=from_user,
             to_user_id=data['to_user_id'],
             amount=data['amount'],
             currency=data.get('currency', 'INR'),
@@ -415,6 +443,11 @@ def import_csv(request, group_id):
     for m in group.memberships.select_related('user').all():
         user_lookup[m.user.name.lower()] = m.user
 
+    # GAP 5 FIX: Read payer assignments from frontend
+    payer_assignments = request.data.get('payer_assignments', {})
+    # Convert keys to int if needed (JSON may send string keys)
+    payer_assignments = {int(k): v for k, v in payer_assignments.items()} if payer_assignments else {}
+
     for row in result['rows']:
         # Save anomalies
         for anomaly in row['anomalies']:
@@ -434,9 +467,15 @@ def import_csv(request, group_id):
             skipped += 1
             continue
 
+        # GAP 5 FIX: If user assigned a payer for this row, apply it
         if row['status'] == 'needs_review' and not row['paid_by']:
-            errors += 1
-            continue
+            assigned_payer = payer_assignments.get(row['row_number'])
+            if assigned_payer:
+                row['paid_by'] = assigned_payer
+                row['status'] = 'active'
+            else:
+                errors += 1
+                continue
 
         # Look up or create payer
         payer = user_lookup.get(row['paid_by'].lower())
